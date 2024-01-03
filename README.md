@@ -1,2 +1,2 @@
-# ReaxFF_torch
+# Torch-ReaxFF
 PyTorch implementation of ReaxFF
