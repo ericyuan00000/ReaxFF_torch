@@ -28,7 +28,7 @@ if __name__ == "__main__":
             ],
         license='MIT',
         packages=setuptools.find_packages(),
-        install_requires=['torch'],
+        install_requires=['ase', 'torch'],
         include_package_data=True,
         classifiers=[
             'Development Status :: 4 - Beta',

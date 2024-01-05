@@ -1,31 +1,107 @@
 import torch
 import torch.nn as nn
 
+import ase
+
 
 class BondOrder(nn.Module):
     '''
     ReaxFF bond order calculation
 
     Parameters:
-        rob1: sigma bond radius inverse, 1 / r_o^sigma (Angstrom^-1)
-        rob2: pi bond radius inverse, 1 / r_o^pi (Angstrom^-1)
-        rob3: double pi bond radius inverse, 1 / r_o^pipi (Angstrom^-1)
-        bop1: sigma bond order parameter, p_bo1
-        bop2: sigma bond order parameter, p_bo2
-        pdp: pi bond order parameter, p_bo3
-        ptp: pi bond order parameter, p_bo4
-        pdo: double pi bond order parameter, p_bo5
-        popi: double pi bond order parameter, p_bo6
-        aval: valancy, Val_i
-        vval3: number of lone pairs, Val'boc_i
-        vpar1: overcoordination parameter, p_boc1
-        vpar2: overcoordination parameter, p_boc2
-        bo132: bond order correction, p_boc3
-        bo131: bond order correction, p_boc4
-        bo133: bond order correction, p_boc5
+        vpar: Gerneral parameters
+        ratomparam: Atomic parameters
+        rbondparam: Bond parameters
+        roffdiagparam: Off-diagonal parameters
     '''
-    def __init__(self, rob1, rob2, rob3, bop1, bop2, pdp, ptp, pdo, popi, aval, vval3, vpar1, vpar2, bo132, bo131, bo133):
+    def __init__(self, vpar, ratomparam, rbondparam, roffdiagparam):
         super(BondOrder, self).__init__()
+        self.vpar = vpar
+        self.ratomparam = ratomparam
+        self.rbondparam = rbondparam
+        self.roffdiagparam = roffdiagparam
+
+    
+    def process_parameters(self, atomic_numbers):
+        '''
+        Parameters:
+            atomic_numbers: atomic numbers of atoms in the system
+
+        Returns:
+            rob1: sigma bond radius inverse, 1 / r_o^sigma
+            rob2: pi bond radius inverse, 1 / r_o^pi
+            rob3: double pi bond radius inverse, 1 / r_o^pipi
+            bop1: sigma bond order parameter, p_bo1
+            bop2: sigma bond order parameter, p_bo2
+            pdp: pi bond order parameter, p_bo3
+            ptp: pi bond order parameter, p_bo4
+            pdo: double pi bond order parameter, p_bo5
+            popi: double pi bond order parameter, p_bo6
+            aval: valancy, Val_i
+            vval3: number of lone pairs, Val'boc_i
+            vpar1: overcoordination parameter, p_boc1
+            vpar2: overcoordination parameter, p_boc2
+            bo132: bond order correction, p_boc3
+            bo131: bond order correction, p_boc4
+            bo133: bond order correction, p_boc5
+
+        Note:
+            The parameters are calculated according to the atomic numbers of the atoms in the system.
+            The parameters are only calculated once (1) at the beginning of the simulation or (2) during the parsing of training data.
+        '''
+        n_atoms = len(atomic_numbers)
+        atomic_ids = [self.ratomparam[ase.data.chemical_symbols[atomic_number.item()]] for atomic_number in atomic_numbers]
+
+        rob1 = torch.zeros((n_atoms, n_atoms))
+        for (i_, i) in enumerate(atomic_ids):
+            for (j_, j) in enumerate(atomic_ids):
+                try:
+                    rob1[i_, j_] = 1 / self.rbondparam[(i, j)][3]
+                    assert rob1[i_, j_] > 0
+                except (KeyError, AssertionError):
+                    rob1[i_, j_] = 2 / (self.ratomparam[i][0] + self.ratomparam[j][0])
+                rob1[j_, i_] = rob1[i_, j_] if rob1[i_, j_] > 1e-15 else 0.5 * (self.ratomparam[i][0] + self.ratomparam[j][0])
+
+        rob2 = torch.zeros((n_atoms, n_atoms))
+        for (i_, i) in enumerate(atomic_ids):
+            for (j_, j) in enumerate(atomic_ids):
+                try:
+                    rob2[i_, j_] = 1 / self.rbondparam[(i, j)][4]    # TODO: check if this is correct regarding the inverse
+                    assert rob2[i_, j_] > 0
+                except (KeyError, AssertionError):
+                    rob2[i_, j_] = 2 / (self.ratomparam[i][6] + self.ratomparam[j][6])
+                rob2[j_, i_] = rob2[i_, j_] if rob2[i_, j_] > 1e-15 else 0.5 * (self.ratomparam[i][6] + self.ratomparam[j][6])
+
+        rob3 = torch.zeros((n_atoms, n_atoms))
+        for (i_, i) in enumerate(atomic_ids):
+            for (j_, j) in enumerate(atomic_ids):
+                try:
+                    rob3[i_, j_] = 1 / self.rbondparam[(i, j)][5]    # TODO: check if this is correct regarding the inverse
+                    assert rob3[i_, j_] > 0
+                except (KeyError, AssertionError):
+                    rob3[i_, j_] = 2 / (self.ratomparam[i][16] + self.ratomparam[j][16])
+                rob3[j_, i_] = rob3[i_, j_] if rob3[i_, j_] > 1e-15 else 0.5 * (self.ratomparam[i][16] + self.ratomparam[j][16])
+
+        bop1 = torch.tensor([self.rbondparam[(i, j)][12] for (i, j) in zip(atomic_ids, atomic_ids)])
+        bop2 = torch.tensor([self.rbondparam[(i, j)][13] for (i, j) in zip(atomic_ids, atomic_ids)])
+        pdp = torch.tensor([self.rbondparam[(i, j)][9] for (i, j) in zip(atomic_ids, atomic_ids)])
+        ptp = torch.tensor([self.rbondparam[(i, j)][10] for (i, j) in zip(atomic_ids, atomic_ids)])
+        pdo = torch.tensor([self.rbondparam[(i, j)][4] for (i, j) in zip(atomic_ids, atomic_ids)])
+        popi = torch.tensor([self.rbondparam[(i, j)][6] for (i, j) in zip(atomic_ids, atomic_ids)])
+
+        aval = torch.tensor([self.ratomparam[i][1] for i in atomic_ids])
+        vval3 = torch.tensor([self.ratomparam[i][27] for i in atomic_ids])    # TODO: check if this is correct regarding the first row elements
+
+        vpar1 = torch.tensor([self.vpar[i][0] for i in atomic_ids])
+        vpar2 = torch.tensor([self.vpar[i][1] for i in atomic_ids])
+        bo132 = torch.tensor([self.ratomparam[i][20] for i in atomic_ids])
+        bo131 = torch.tensor([self.ratomparam[i][19] for i in atomic_ids])
+        bo133 = torch.tensor([self.ratomparam[i][21] for i in atomic_ids])
+
+        return rob1, rob2, rob3, bop1, bop2, pdp, ptp, pdo, popi, aval, vval3, vpar1, vpar2, bo132, bo131, bo133
+
+
+    def set_parameters(self, rob1, rob2, rob3, bop1, bop2, pdp, ptp, pdo, popi, aval, vval3, vpar1, vpar2, bo132, bo131, bo133):
         self.rob1 = rob1
         self.rob2 = rob2
         self.rob3 = rob3
@@ -39,39 +115,69 @@ class BondOrder(nn.Module):
         self.vval3 = vval3
         self.vpar1 = vpar1
         self.vpar2 = vpar2
-        self.vp132 = torch.sqrt(bo132.unsqueeze(-1) * bo132.unsqueeze(-2))    # p_boc3 = sqrt(p_boc3_i * p_boc3_j)
-        self.vp131 = torch.sqrt(bo131.unsqueeze(-1) * bo131.unsqueeze(-2))    # p_boc4 = sqrt(p_boc4_i * p_boc4_j)
-        self.vp133 = torch.sqrt(bo133.unsqueeze(-1) * bo133.unsqueeze(-2))    # p_boc5 = sqrt(p_boc5_i * p_boc5_j)
+        self.bo132 = bo132
+        self.bo131 = bo131
+        self.bo133 = bo133
 
 
-    def forward(self, rij):
+    def forward(self, distances):
         '''
-        Inputs:
-            rij: distance between two atoms
+        Parameters:
+            distances: interatomic distances
+
+        Returns:
+            bo: sigma bond order, BO_ij^sigma
+            bopi: pi bond order, BO_ij^pi
+            bopi2: double pi bond order, BO_ij^pipi
+            abo: total bond order, BO_ij
+            ovi4: overcoordination, Delta_i
         '''
-        # equation 2
+        rij = distances
+
+        # BO'_ij^sigma = exp(p_bo1 * (rij / r_o^sigma) ^ p_bo2)
         borsi = torch.exp(self.bop1 * (rij * self.rob1) ** self.bop2)
-            # BO'_ij^sigma = exp(p_bo1 * (rij / r_o^sigma) ^ p_bo2)
+        # BO'_ij^pi = exp(p_bo3 * (rij / r_o^pi) ^ p_bo4)
         bopi = torch.exp(self.pdp * (rij * self.rob2) ** self.ptp)
-            # BO'_ij^pi = exp(p_bo3 * (rij / r_o^pi) ^ p_bo4)
+        # BO'_ij^pipi = exp(p_bo5 * (rij / r_o^pipi) ^ p_bo6)
         bopi2 = torch.exp(self.pdo * (rij * self.rob3) ** self.popi)
-            # BO'_ij^pipi = exp(p_bo5 * (rij / r_o^pipi) ^ p_bo6)
+        # BO'_ij = BO'_ij^sigma + BO'_ij^pi + BO'_ij^pipi
         bor = borsi + bopi + bopi2
-            # BO'_ij = BO'_ij^sigma + BO'_ij^pi + BO'_ij^pipi
-        # equation 3
+        
+        # BO'_i = sum_j BO'_ij
         aboi = torch.sum(bor, dim=-1)
+        # Delta'_i = -Val_i + sum_j BO'_ij
         ovi = -self.aval + aboi
-            # Delta'_i = -Val_i + sum_j BO'_ij
+        # Delta'boc_i = -Val'boc_i + sum_j BO'_ij
         ovi2 = -self.vval3 + aboi
-            # Delta'boc_i = -Val'boc_i + sum_j BO'_ij
-        # equation 4
+
+        # f2(Delta'_i, Delta'_j) = exp(-p_boc1 * Delta'_i) + exp(-p_boc1 * Delta'_j)
         exp1 = torch.exp(-self.vpar1 * ovi)
         ovcor1 = exp1.unsqueeze(-1) + exp1.unsqueeze(-2)
-            # f2(Delta'_i, Delta'_j) = exp(-p_boc1 * Delta'_i) + exp(-p_boc1 * Delta'_j)
+        # f3(Delta'_i, Delta'_j) = -1 / p_boc2 * ln(1 / 2 * (exp(-p_boc2 * Delta'_i) + exp(-p_boc2 * Delta'_j)
         exp2 = torch.exp(-self.vpar2 * ovi)
-        ovcor2 = - torch.log((exp2.unsqueeze(-1) + exp2.unsqueeze(-2)) / 2) / self.vpar2
-            # f3(Delta'_i, Delta'_j) = -1 / p_boc2 * ln(1 / 2 * (exp(-p_boc2 * Delta'_i) + exp(-p_boc2 * Delta'_j)
-        coortot = ((self.aval.unsqueeze(-1) + ovcor1) / (self.aval.unsqueeze(-1) + ovcor1 + ovcor2) + (self.aval.unsqueeze(-2) + ovcor1) / (self.aval.unsqueeze(-2) + ovcor1 + ovcor2)) / 2
-            # f1(Delta'_i, Delta'_j) = 1 / 2 * ((Val_i + f2(Delta'_i, Delta'_j)) / (Val_i + f2(Delta'_i, Delta'_j) + f3(Delta'_i, Delta'_j)) + (Val_j + f2(Delta'_i, Delta'_j)) / (Val_j + f2(Delta'_i, Delta'_j) + f3(Delta'_i, Delta'_j)))
-        bocor1 = 1 / (1 + torch.exp(-self.vp132 * (self.vp131 * bor ** 2 - ovi2) + self.vp133))
-            # f4(BO'_ij, Delta'boc_ij) = 1 / (1 + exp(-sqrt(p_boc3_i * p_boc3_j) * (sqrt(p_boc4_i * p_boc4_j) * BO'_ij^2 - Delta'boc_ij) + sqrt(p_boc5_i * p_boc5_j)))
+        ovcor2 = - torch.log(0.5 * (exp2.unsqueeze(-1) + exp2.unsqueeze(-2))) / self.vpar2
+        # f1(Delta'_i, Delta'_j) = 1 / 2 * ((Val_i + f2(Delta'_i, Delta'_j)) / (Val_i + f2(Delta'_i, Delta'_j) + f3(Delta'_i, Delta'_j)) + (Val_j + f2(Delta'_i, Delta'_j)) / (Val_j + f2(Delta'_i, Delta'_j) + f3(Delta'_i, Delta'_j)))
+        frac1 = (self.aval.unsqueeze(-1) + ovcor1) / (self.aval.unsqueeze(-1) + ovcor1 + ovcor2)
+        coortot = 0.5 * (frac1 + torch.transpose(frac1, -1, -2))
+        # f4 = 1 / (1 + exp(-p_boc3 * (p_boc4 * BO'_ij^2 - Delta'boc_i) + p_boc5))
+        vp132 = torch.sqrt(self.bo132.unsqueeze(-1) * self.bo132.unsqueeze(-2))    # p_boc3 = sqrt(p_boc3_i * p_boc3_j)
+        vp131 = torch.sqrt(self.bo131.unsqueeze(-1) * self.bo131.unsqueeze(-2))    # p_boc4 = sqrt(p_boc4_i * p_boc4_j)
+        vp133 = torch.sqrt(self.bo133.unsqueeze(-1) * self.bo133.unsqueeze(-2))    # p_boc5 = sqrt(p_boc5_i * p_boc5_j)
+        bocor1 = torch.sigmoid(vp132 * (vp131 * bor ** 2 - ovi2.unsqueeze(-1)) - vp133)
+        # f5 = 1 / (1 + exp(-p_boc3 * (p_boc4 * BO'_ij^2 - Delta'boc_j) + p_boc5))
+        bocor2 = torch.transpose(bocor1, -1, -2)
+        # BO_ij^sigma = BO'_ij^sigma * f1 * f4 * f5  # TODO: check if this is correct regarding bond order cutoff "cutoff = 0.01 * vpar(30)"
+        bo = borsi * coortot * bocor1 * bocor2
+        # BO_ij^pi = BO'_ij^pi * f1^2 * f4 * f5
+        bopi = bopi * coortot ** 2 * bocor1 * bocor2
+        # BO_ij^pipi = BO'_ij^pipi * f1^2 * f4 * f5
+        bopi2 = bopi2 * coortot ** 2 * bocor1 * bocor2
+        # BO_ij = BO_ij^sigma + BO_ij^pi + BO_ij^pipi
+        abo = bo + bopi + bopi2
+
+        # Delta_i = -Val_i + sum_j BO_ij
+        ovi4 = -self.aval + torch.sum(abo, dim=-1)
+
+        return bo, bopi, bopi2, abo, ovi4
+        
+
