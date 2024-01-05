@@ -1,0 +1,19 @@
+Metadata-Version: 2.1
+Name: reaxff
+Version: 0.0.1
+Summary: PyTorch implementation of ReaxFF
+Author: Eric Yuan
+Author-email: ericyuan@berkeley.edu
+License: MIT
+Project-URL: Source, https://github.com/ericyuan00000/Torch-ReaxFF
+Keywords: Machine Learning,Data Mining,Quantum Chemistry,Molecular Dynamics
+Classifier: Development Status :: 4 - Beta
+Classifier: Natural Language :: English
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: torch
+
+# Torch-ReaxFF
+PyTorch implementation of ReaxFF

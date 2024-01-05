@@ -1,0 +1,10 @@
+LICENSE
+README.md
+setup.py
+reaxff/__init__.py
+reaxff.egg-info/PKG-INFO
+reaxff.egg-info/SOURCES.txt
+reaxff.egg-info/dependency_links.txt
+reaxff.egg-info/not-zip-safe
+reaxff.egg-info/requires.txt
+reaxff.egg-info/top_level.txt
