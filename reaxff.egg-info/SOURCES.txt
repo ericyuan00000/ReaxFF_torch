@@ -2,6 +2,9 @@ LICENSE
 README.md
 setup.py
 reaxff/__init__.py
+reaxff/bond.py
+reaxff/model.py
+reaxff/order.py
 reaxff.egg-info/PKG-INFO
 reaxff.egg-info/SOURCES.txt
 reaxff.egg-info/dependency_links.txt

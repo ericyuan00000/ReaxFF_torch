@@ -13,6 +13,7 @@ Classifier: Intended Audience :: Science/Research
 Classifier: Programming Language :: Python :: 3
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: ase
 Requires-Dist: torch
 
 # Torch-ReaxFF
