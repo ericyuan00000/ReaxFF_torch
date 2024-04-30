@@ -14,18 +14,19 @@ class ReaxffBondOrder(nn.Module):
         rbondparam: Bond parameters
         roffdiagparam: Off-diagonal parameters
     '''
-    def __init__(self, vpar: list, ratomparam: dict[str, list], rbondparam: dict[tuple[int, int], list], roffdiagparam: dict[tuple[int, int], list], **params):
+    def __init__(self, params):
         super(ReaxffBondOrder, self).__init__()
-        self.vpar = vpar
-        self.ratomparam = ratomparam
-        self.rbondparam = rbondparam
-        self.roffdiagparam = roffdiagparam
+        self.atomtype = params.atomtype
+        self.vpar = params.vpar
+        self.ratomparam = params.ratomparam
+        self.rbondparam = params.rbondparam
+        self.roffdiagparam = params.roffdiagparam
 
     
     def process_params(self, atomic_numbers):
         '''
         Parameters:
-            atomic_numbers: atomic numbers of atoms in the system
+            atomic_numbers: atomic numbers of atoms in the system, shape (n_data, n_atoms)
 
         Returns:
             rob1: sigma bond radius inverse, 1 / r_o^sigma
@@ -49,40 +50,40 @@ class ReaxffBondOrder(nn.Module):
             The parameters are calculated according to the atomic numbers of the atoms in the system.
             The parameters are only calculated once (1) at the beginning of the simulation or (2) during the parsing of training data.
         '''
-        n_atoms = len(atomic_numbers)
-        atomic_symbols = [ase.data.chemical_symbols[atomic_number.item()] for atomic_number in atomic_numbers]
-        atomic_ids = [list(self.ratomparam).index(atomic_symbol) for atomic_symbol in atomic_symbols]
+        n_data, n_atoms = atomic_numbers.shape
+        atomic_ids = torch.zeros_like(atomic_numbers, dtype=torch.long)
 
-        rob1 = torch.zeros((n_atoms, n_atoms))
+        rob1 = torch.full((n_atoms, n_atoms), torch.nan)
         for i in range(n_atoms):
             for j in range(n_atoms):
                 if self.rbondparam.get((atomic_ids[i], atomic_ids[j]), 0)[4] > 0:
                     rob1[i, j] = 1 / self.rbondparam[(atomic_ids[i], atomic_ids[j])][4]
                 else:
-                    rob1[i, j] = 2 / (self.ratomparam[atomic_symbols[i]][1] + self.ratomparam[atomic_symbols[j]][1])
+                    rob1[i, j] = 2 / (self.ratomparam[atomic_ids[i]][1] + self.ratomparam[atomic_ids[j]][1])
                 if rob1[i, j] <= 1.0e-15:
-                    rob1[i, j] = 0.5 * (self.ratomparam[atomic_symbols[i]][1] + self.ratomparam[atomic_symbols[j]][1])
+                    rob1[i, j] = 0.5 * (self.ratomparam[atomic_ids[i]][1] + self.ratomparam[atomic_ids[j]][1])
 
-        rob2 = torch.zeros((n_atoms, n_atoms))
+        rob2 = torch.full((n_atoms, n_atoms), torch.nan)
         for i in range(n_atoms):
             for j in range(n_atoms):
                 if self.rbondparam.get((atomic_ids[i], atomic_ids[j]), 0)[5] > 0:
                     rob2[i, j] = 1 / self.rbondparam[(atomic_ids[i], atomic_ids[j])][5]    # TODO: check if this is correct regarding the inverse
                 else:
-                    rob2[i, j] = 2 / (self.ratomparam[atomic_symbols[i]][7] + self.ratomparam[atomic_symbols[j]][7])
+                    rob2[i, j] = 2 / (self.ratomparam[atomic_ids[i]][7] + self.ratomparam[atomic_ids[j]][7])
                 if rob2[i, j] <= 1.0e-15:
-                    rob2[i, j] = 0.5 * (self.ratomparam[atomic_symbols[i]][7] + self.ratomparam[atomic_symbols[j]][7])
+                    rob2[i, j] = 0.5 * (self.ratomparam[atomic_ids[i]][7] + self.ratomparam[atomic_ids[j]][7])
 
-        rob3 = torch.zeros((n_atoms, n_atoms))
+        rob3 = torch.full((n_atoms, n_atoms), torch.nan)
         for i in range(n_atoms):
             for j in range(n_atoms):
                 if self.rbondparam.get((atomic_ids[i], atomic_ids[j]), 0)[6] > 0:
                     rob3[i, j] = 1 / self.rbondparam[(atomic_ids[i], atomic_ids[j])][6]    # TODO: check if this is correct regarding the inverse
                 else:
-                    rob3[i, j] = 2 / (self.ratomparam[atomic_symbols[i]][17] + self.ratomparam[atomic_symbols[j]][17])
+                    rob3[i, j] = 2 / (self.ratomparam[atomic_ids[i]][17] + self.ratomparam[atomic_ids[j]][17])
                 if rob3[i, j] <= 1.0e-15:
-                    rob3[i, j] = 0.5 * (self.ratomparam[atomic_symbols[i]][17] + self.ratomparam[atomic_symbols[j]][17])
-                    
+                    rob3[i, j] = 0.5 * (self.ratomparam[atomic_ids[i]][17] + self.ratomparam[atomic_ids[j]][17])
+        
+        bop1 = torch.full((n_atoms, n_atoms), torch.nan)
         bop1 = torch.tensor([self.rbondparam[(i, j)][13] for (i, j) in zip(atomic_ids, atomic_ids)])
         bop2 = torch.tensor([self.rbondparam[(i, j)][14] for (i, j) in zip(atomic_ids, atomic_ids)])
         pdp = torch.tensor([self.rbondparam[(i, j)][10] for (i, j) in zip(atomic_ids, atomic_ids)])
@@ -90,14 +91,14 @@ class ReaxffBondOrder(nn.Module):
         pdo = torch.tensor([self.rbondparam[(i, j)][5] for (i, j) in zip(atomic_ids, atomic_ids)])
         popi = torch.tensor([self.rbondparam[(i, j)][7] for (i, j) in zip(atomic_ids, atomic_ids)])
 
-        aval = torch.tensor([self.ratomparam[i][2] for i in atomic_symbols])
-        vval3 = torch.tensor([self.ratomparam[i][28] for i in atomic_symbols])    # TODO: check if this is correct regarding the first row elements
+        aval = torch.tensor([self.ratomparam[i][2] for i in atomic_ids])
+        vval3 = torch.tensor([self.ratomparam[i][28] for i in atomic_ids])    # TODO: check if this is correct regarding the first row elements
 
         vpar1 = self.vpar[1]
         vpar2 = self.vpar[2]
-        bo132 = torch.tensor([self.ratomparam[i][21] for i in atomic_symbols])
-        bo131 = torch.tensor([self.ratomparam[i][20] for i in atomic_symbols])
-        bo133 = torch.tensor([self.ratomparam[i][22] for i in atomic_symbols])
+        bo132 = torch.tensor([self.ratomparam[i][21] for i in atomic_ids])
+        bo131 = torch.tensor([self.ratomparam[i][20] for i in atomic_ids])
+        bo133 = torch.tensor([self.ratomparam[i][22] for i in atomic_ids])
 
         return rob1, rob2, rob3, bop1, bop2, pdp, ptp, pdo, popi, aval, vval3, vpar1, vpar2, bo132, bo131, bo133
 
